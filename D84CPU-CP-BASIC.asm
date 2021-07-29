@@ -1,6 +1,7 @@
 ;------------------------------------------------------------------------------
 ;       D84CPU-CP TMPZ84C015BFG-8 CPU BOARD
 ;       CLOCK 14.7456MHz (ORIGINAL 19.6608MHz)
+;	SIO 115200bps/8bit/none
 ;
 ;       >> MEMORY MAP <<
 ;       FFFFH +-------+
@@ -204,6 +205,13 @@ SIOI06_10:
 	LD	(SIOARXBUFSP),HL
 	LD	HL,SIOARXBUFCNT		;バッファ文字数 += 1
 	INC	(HL)
+	LD	A,(HL)
+	CP	250
+	JR	NZ,SIOI06_20
+	LD	A,5
+	OUT	(SIOAC),A
+	LD	A,1 11 0 1 0 0 0B
+	OUT	(SIOAC),A
 
 SIOI06_20:
 	IN	A,(SIOAC)		;受信FIFOにデータがあれば連続受信
@@ -237,12 +245,21 @@ SIOA_GETC_20:
 	DI
         LD      HL,(SIOARXBUFGP)        ;GET CHARACTER DATA
         LD      A,(HL)
+	LD	D,A
         INC     L                       ;INCLIMENT GET POINTER
         LD      (SIOARXBUFGP),HL
         LD      HL,SIOARXBUFCNT         ;DECLIMENT DATA COUNTER
         DEC     (HL)
+	LD	A,(HL)
+	CP	2
+	JR	NZ,SIOA_GETC_90
+	LD	A,5
+	OUT	(SIOAC),A
+	LD	A,1 11 0 1 0 1 0B
+	OUT	(SIOAC),A
 
 SIOA_GETC_90:
+	LD	A,D
         POP     HL
         POP     DE
 	EI
@@ -334,6 +351,9 @@ COLDSTART:
         DI                              ;DISABLE INTERRUPT
         LD      SP,MSTACK
 SETUP:
+;	CTC INITIALIZE
+
+;	SIO INITIALIZE
         CALL    SIOA_INITRXVAR
         CALL    SIOA_INITTXVAR
 
@@ -349,8 +369,24 @@ SETUP:
 	LD	HL,SIO2VECT		;LOAD Interrupt routine address
 	LD	A,H			;SET I REG
 	LD	I,A
+
+;	ENABLE INTERRUPT
 	IM	2			;SET MODE 2 Interrupt
 	EI				;ENABLE INTERRUPT
+
+;	PIO INITIALIZE
+;	LD	A,0CFH
+;	OUT	(PIOAC),A
+;	LD	A,0
+;	OUT	(PIOAC),A
+;	LD	A,7
+;	OUT	(PIOAC),A
+;	LD	A,0CFH
+;	OUT	(PIOBC),A
+;	LD	A,0
+;	OUT	(PIOBC),A
+;	LD	A,7
+;	OUT	(PIOBC),A
 ;-----------------------------------------------------------------------------
 ;	MAIN ROUTINE
 LOOP:
@@ -396,7 +432,7 @@ DEL	.EQU	7FH		; Delete
 ;
 ; BASIC WORK SPACE LOCATIONS
 ;
-WRKSPC	.EQU	8300H		; BASIC Work space
+WRKSPC	.EQU	8210H		; BASIC Work space
 USR	.EQU	WRKSPC+3H	; "USR (x)" jump
 OUTSUB	.EQU	WRKSPC+6H	; "OUT p,n"
 OTPORT	.EQU	WRKSPC+7H	; Port (p)
