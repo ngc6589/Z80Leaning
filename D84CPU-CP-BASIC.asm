@@ -1,7 +1,7 @@
 ;------------------------------------------------------------------------------
 ;       D84CPU-CP TMPZ84C015BFG-8 CPU BOARD
 ;       CLOCK 14.7456MHz (ORIGINAL 19.6608MHz)
-;	SIO 115200bps/8bit/none
+;	SIO 1200bps/8bit/none
 ;
 ;       >> MEMORY MAP <<
 ;       FFFFH +-------+
@@ -51,9 +51,13 @@ PIOBD	.EQU	1EH
 PIOBC	.EQU	1FH
 ;
 	.ORG	8000H
-;				BUFFER AREA MUST ALIGNMENT 256 boundary
-SIOARXBUF	.DS	256
-SIOATXBUF	.DS	256
+				;送受信バッファは、プログラム簡略化のため
+				;256バイト長とし、256バウンダリのきりのいい
+				;アドレスに配置すること
+SIOARXBUF	.BLOCK	256
+SIOARXBUFEND	.EQU	$-1
+SIOATXBUF	.BLOCK	256
+SIOATXBUFEND	.EQU	$-1
 SIOARXBUFSP	.WORD	1	;SIOARXBUF STORE POINTER
 SIOARXBUFGP	.WORD	1	;SIOARXBUF GET POINTER
 SIOARXBUFCNT	.BYTE	1	;SIOARXBUF DATA COUNT
@@ -163,22 +167,22 @@ SIOI03:	HALT
 SIOI04:
 	PUSH	AF
 	PUSH	HL
-	LD	A,(SIOATXBUFCNT)	;if(文字数 == 0) goto SIOI04_90
-	OR	A
+	LD	A,(SIOATXBUFCNT)	;送信文字カウンタが0なら
+	CP	0			;割り込みリセットをする
 	JR	Z,SIOI04_80
-	LD	HL,(SIOATXBUFGP)	;データ送信
+	LD	HL,(SIOATXBUFGP)	;バッファから文字を取り出す
 	LD	A,(HL)
-	OUT	(SIOAD),A
-	INC	L			;送信データポインタ += 1
+	OUT	(SIOAD),A		;文字を送信する
+	INC	L			;送信データポインタ++
 	LD	(SIOATXBUFGP),HL
-	LD	HL,SIOATXBUFCNT 	;バッファ文字数 -= 1
+	LD	HL,SIOATXBUFCNT 	;送信文字カウンタ--
 	DEC	(HL)
-	LD	A,(SIOATXBUFCNT)	;if(文字数!=0) goto SIOI04_99
-	OR	A
-	JP	NZ,SIOI04_90
-SIOI04_80:				;送信データがない時はWR0フラグリセット
-	LD	A,00 101 000B		;101: 保留中の送信割り込みをリセットする
-	OUT	(SIOAC),A
+	LD	A,(SIOATXBUFCNT)	;送信文字カウンタが0でなければ
+	CP	0			;バッファに文字が残っているので
+	JP	NZ,SIOI04_90		;割り込み継続
+SIOI04_80:				
+	LD	A,00 101 000B		;送信データがない時はWR0フラグリセット
+	OUT	(SIOAC),A		;101: 保留中の送信割り込みをリセットする
 SIOI04_90:
 	POP	HL
 	POP	AF
@@ -200,17 +204,17 @@ SIOI06_10:
 	JR	Z,SIOI06_90
 	IN	A,(SIOAD)		;データ取り出し
 	LD	HL,(SIOARXBUFSP)		
-	LD	(HL),A			;バッファにデータ格納
-	INC	L			;送信データポインタ+=1
+	LD	(HL),A			;受信バッファにデータ格納
+	INC	L			;受信バッファポインタ++
 	LD	(SIOARXBUFSP),HL
-	LD	HL,SIOARXBUFCNT		;バッファ文字数 += 1
+	LD	HL,SIOARXBUFCNT		;受信文字カウンタ++
 	INC	(HL)
-	LD	A,(HL)
+	LD	A,(HL)			;送信文字カウンタ250文字でRTS=OFF
 	CP	250
 	JR	NZ,SIOI06_20
-	LD	A,5
-	OUT	(SIOAC),A
-	LD	A,1 11 0 1 0 0 0B
+	LD	A,5			;SIO WR0 -> WR5
+	OUT	(SIOAC),A		
+	LD	A,1 11 0 1 0 0 0B	;SIO WR5 RTS=OFF
 	OUT	(SIOAC),A
 
 SIOI06_20:
@@ -237,25 +241,25 @@ SIOA_GETC:
         PUSH    HL
 
 SIOA_GETC_10:
-        LD      A,(SIOARXBUFCNT)	;if(sioarxbufcnt == 0) goto SIOA_GETC_10
+        LD      A,(SIOARXBUFCNT)	;受信文字カウンタが0ならループして待つ
         OR      0
         JR      Z,SIOA_GETC_10
 
 SIOA_GETC_20:
 	DI
-        LD      HL,(SIOARXBUFGP)        ;GET CHARACTER DATA
+        LD      HL,(SIOARXBUFGP)        ;バッファから文字を取り出す
         LD      A,(HL)
 	LD	D,A
-        INC     L                       ;INCLIMENT GET POINTER
+        INC     L                       ;受信文字ポインタ++
         LD      (SIOARXBUFGP),HL
-        LD      HL,SIOARXBUFCNT         ;DECLIMENT DATA COUNTER
+        LD      HL,SIOARXBUFCNT         ;受信文字カウンタ--
         DEC     (HL)
-	LD	A,(HL)
+	LD	A,(HL)			;受信文字カウンタ2文字でRTS=ON
 	CP	2
 	JR	NZ,SIOA_GETC_90
-	LD	A,5
+	LD	A,5			;SIO WR0 -> WR5
 	OUT	(SIOAC),A
-	LD	A,1 11 0 1 0 1 0B
+	LD	A,1 11 0 1 0 1 0B	;SIO WR5 RTS=ON
 	OUT	(SIOAC),A
 
 SIOA_GETC_90:
@@ -272,16 +276,23 @@ SIOA_PUTC:
         PUSH    DE
         PUSH    HL
 	LD 	D,A
+SIOA_PUTC_00:
+	LD	A,(SIOATXBUFCNT)	;送信文字カウンタが255文字(バッファフル)なら
+	CP	255			;ループして待つ
+	JR	Z,SIOA_PUTC_00
 	DI
-	LD	A,(SIOATXBUFCNT)	;送信文字カウンタ != 0 goro SIOA_PUTC_10
-	CP	0
-	JR	NZ,SIOA_PUTC_10
+	LD	A,(SIOATXBUFCNT)	;送信文字カウンタが0以外(バッファに文字あり)
+	CP	0			;SIO動作中なのでバッファに文字格納
+	JR	NZ,SIOA_PUTC_10		;
 	IN	A,(SIOAC)		;SIO の送信バッファが「空」か？
 	BIT	2,A			;CHECK TX BUFFER EMPTY BIT
-	JR	Z,SIOA_PUTC_10		;NO GOTO STORE BUFFER
+	JR	Z,SIOA_PUTC_10		;「空」でなければバッファに文字を溜める
+					;送信割り込みルーチンで、最後の文字を
+					;取り出して送信文字カウンタが0でも
+					;SIOは送信中の可能性があるため
 
-	LD	A,D			;1文字送信
-	OUT	(SIOAD),A
+	LD	A,D			;バッファが「空」なら
+	OUT	(SIOAD),A		;1文字送信を行なう
 	JR	SIOA_PUTC_90
 
 SIOA_PUTC_10:
@@ -290,7 +301,7 @@ SIOA_PUTC_10:
         LD      (HL),A
         INC     L                       ;INCLIMENT STORE POINTER
         LD      (SIOATXBUFSP),HL
-        LD      HL,SIOATXBUFCNT	        ;INCLIMENT DATA COUNTER
+        LD      HL,SIOATXBUFCNT	        ;送信文字カウンタ++
 	INC	(HL)
 
 SIOA_PUTC_90:
@@ -309,8 +320,12 @@ SIOACC:	.BYTE	00 011 000B	;WR0 CHANNEL RESET
 	.BYTE	11 0 0 0 0 0 1B	;WR3 RX 8bit data
                                 ;    ENABLE RECEIVER
 	.BYTE	00 000 100B	;WR0 -> WR4
-	.BYTE	11 00 01 00B	;WR4 CLOCk /64
+;	.BYTE	11 00 01 00B	;WR4 CLOCk /64
+;                               ;    1 STOP BIT
+;				;    non parity
+	.BYTE	01 00 01 00B	;WR4 CLOCk /16
                                 ;    1 STOP BIT
+;				;    non parity
 	.BYTE	00 000 101B	;WR0 -> WR5
 	.BYTE	1 11 0 1 0 1 0B	;WR5 DTR=ON
                                 ;    TX 8bit data
@@ -352,41 +367,57 @@ COLDSTART:
         LD      SP,MSTACK
 SETUP:
 ;	CTC INITIALIZE
+;	BAUD RATE GENERATOR(Timer mode)
+;	14,745,600 / 2 = 7,372,800 (SYSTEM CLOCK)
+;	 7,372,800 / 16 = 460,800 (CTC PRESCALER OUTPUT)
+;	   460,800 / 24 =  19,200 (CTC OUTPUT)
+;           19,200 / 16 = 1200bps (16:SIO PRESCALER)
+	LD	A,0000 0111B		;割り込みなし
+					;タイマーモード
+					;プリスケーラー1/16
+					;CLK/TRG立ち下りで動作
+					;時間定数ロード後のマシンサイクルT2立ち下りで開始
+					;時間定数をロードする
+					;チャネルリセット
+					;常に1
+	OUT	(CTC1),A
+	LD	A,24
+	OUT	(CTC1),A
 
 ;	SIO INITIALIZE
         CALL    SIOA_INITRXVAR
         CALL    SIOA_INITTXVAR
 
-        LD      HL,SIOACC               ;LOAD SIO PARAMETER
+        LD      HL,SIOACC               ;SIOA 設定バイト列を出力
         LD      B,SIOACE-SIOACC
         LD      C,SIOAC
         OTIR
-        LD      HL,SIOBCC
+        LD      HL,SIOBCC		;SIOA 設定バイト列を出力
         LD      B,SIOBCE-SIOBCC
         LD      C,SIOBC
         OTIR
 
-	LD	HL,SIO2VECT		;LOAD Interrupt routine address
-	LD	A,H			;SET I REG
-	LD	I,A
+	LD	HL,SIO2VECT		;SIOの割り込みベクタをIレジスタに登録
+	LD	A,H			;
+	LD	I,A			;
 
 ;	ENABLE INTERRUPT
 	IM	2			;SET MODE 2 Interrupt
 	EI				;ENABLE INTERRUPT
 
 ;	PIO INITIALIZE
-;	LD	A,0CFH
-;	OUT	(PIOAC),A
-;	LD	A,0
-;	OUT	(PIOAC),A
-;	LD	A,7
-;	OUT	(PIOAC),A
-;	LD	A,0CFH
-;	OUT	(PIOBC),A
-;	LD	A,0
-;	OUT	(PIOBC),A
-;	LD	A,7
-;	OUT	(PIOBC),A
+	LD	A,0CFH			;PIOA ビットモード(モード3)
+	OUT	(PIOAC),A
+	LD	A,0			;全てのビットを出力に設定
+	OUT	(PIOAC),A
+	LD	A,7			;割り込みなし
+	OUT	(PIOAC),A
+	LD	A,0CFH			;PIOB ビットモード(モード3)
+	OUT	(PIOBC),A
+	LD	A,0			;全てのビットを出力に設定
+	OUT	(PIOBC),A
+	LD	A,7			;割り込みなし
+	OUT	(PIOBC),A
 ;-----------------------------------------------------------------------------
 ;	MAIN ROUTINE
 LOOP:
