@@ -199,7 +199,7 @@ SIOI06:
 	PUSH	AF
 	PUSH	HL
 SIOI06_10:
-	IN	A,(SIOAC)
+	IN	A,(SIOAC)		;SIO FIFO にデータがなければ抜ける
 	BIT	0,A
 	JR	Z,SIOI06_90
 	IN	A,(SIOAD)		;データ取り出し
@@ -209,7 +209,7 @@ SIOI06_10:
 	LD	(SIOARXBUFSP),HL
 	LD	HL,SIOARXBUFCNT		;受信文字カウンタ++
 	INC	(HL)
-	LD	A,(HL)			;送信文字カウンタ250文字でRTS=OFF
+	LD	A,(HL)			;受信文字カウンタ250文字でRTS=OFF
 	CP	250
 	JR	NZ,SIOI06_20
 	LD	A,5			;SIO WR0 -> WR5
