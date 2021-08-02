@@ -167,6 +167,8 @@ SIOI03:	HALT
 SIOI04:
 	PUSH	AF
 	PUSH	HL
+
+SIOA04_10:
 	LD	A,(SIOATXBUFCNT)	;送信文字カウンタが0なら
 	CP	0			;割り込みリセットをする
 	JR	Z,SIOI04_80
@@ -180,9 +182,11 @@ SIOI04:
 	LD	A,(SIOATXBUFCNT)	;送信文字カウンタが0でなければ
 	CP	0			;バッファに文字が残っているので
 	JP	NZ,SIOI04_90		;割り込み継続
+
 SIOI04_80:				
 	LD	A,00 101 000B		;送信データがない時はWR0フラグリセット
 	OUT	(SIOAC),A		;101: 保留中の送信割り込みをリセットする
+
 SIOI04_90:
 	POP	HL
 	POP	AF
@@ -198,6 +202,7 @@ SIOI05:	HALT
 SIOI06:
 	PUSH	AF
 	PUSH	HL
+
 SIOI06_10:
 	IN	A,(SIOAC)		;SIO FIFO にデータがなければ抜ける
 	BIT	0,A
@@ -276,6 +281,7 @@ SIOA_PUTC:
         PUSH    DE
         PUSH    HL
 	LD 	D,A
+
 SIOA_PUTC_00:
 	LD	A,(SIOATXBUFCNT)	;送信文字カウンタが255文字(バッファフル)なら
 	CP	255			;ループして待つ
@@ -301,7 +307,7 @@ SIOA_PUTC_10:
         LD      (HL),A
         INC     L                       ;INCLIMENT STORE POINTER
         LD      (SIOATXBUFSP),HL
-        LD      HL,SIOATXBUFCNT	        ;送信文字カウンタ++
+        LD      HL,SIOATXBUFCNT	        ;送信文字カウンタLED
 	INC	(HL)
 
 SIOA_PUTC_90:
@@ -321,11 +327,11 @@ SIOACC:	.BYTE	00 011 000B	;WR0 CHANNEL RESET
                                 ;    ENABLE RECEIVER
 	.BYTE	00 000 100B	;WR0 -> WR4
 ;	.BYTE	11 00 01 00B	;WR4 CLOCk /64
-;                               ;    1 STOP BIT
+; 				;    1 STOP BIT
 ;				;    non parity
 	.BYTE	01 00 01 00B	;WR4 CLOCk /16
-                                ;    1 STOP BIT
-;				;    non parity
+				;    1 STOP BIT
+				;    non parity
 	.BYTE	00 000 101B	;WR0 -> WR5
 	.BYTE	1 11 0 1 0 1 0B	;WR5 DTR=ON
                                 ;    TX 8bit data
@@ -370,18 +376,18 @@ SETUP:
 ;	BAUD RATE GENERATOR(Timer mode)
 ;	14,745,600 / 2 = 7,372,800 (SYSTEM CLOCK)
 ;	 7,372,800 / 16 = 460,800 (CTC PRESCALER OUTPUT)
-;	   460,800 / 24 =  19,200 (CTC OUTPUT)
-;           19,200 / 16 = 1200bps (16:SIO PRESCALER)
+;	   460,800 / 3 =  153,600 (CTC OUTPUT)
+;          153,600 / 16 = 9600bps (16:SIO PRESCALER)
 	LD	A,0000 0111B		;割り込みなし
-					;タイマーモード
-					;プリスケーラー1/16
-					;CLK/TRG立ち下りで動作
-					;時間定数ロード後のマシンサイクルT2立ち下りで開始
-					;時間定数をロードする
-					;チャネルリセット
-					;常に1
+;					;タイマーモード
+;					;プリスケーラー1/16
+;					;CLK/TRG立ち下りで動作
+;					;時間定数ロード後のマシンサイクルT2立ち下りで開始
+;					;時間定数をロードする
+;					;チャネルリセット
+;					;常に1
 	OUT	(CTC1),A
-	LD	A,24
+	LD	A,3
 	OUT	(CTC1),A
 
 ;	SIO INITIALIZE
