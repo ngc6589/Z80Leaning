@@ -1,17 +1,17 @@
 /*
      DDUAL-86 ROM HEXWRITER (Aki-80 Compatible board)
      Mashiro Kusunoki (JP3SRS)
-     2021/08/14 Draft Version.
+     2021/08/16 Draft Version.
 */
-#define RESET 11
-#define MREQ  9
-#define WR    8
-#define LED   13
+#define RESET  11
+#define MREQ    9
+#define WR      8
+#define LED    13
 
 
-boolean  processingHexWriteMode = false;
+volatile boolean  processingHexWriteMode = false;
 char ihexBuf[520];
-int  ihexIdx;
+volatile int  ihexIdx;
 /*
      PA0-PA7(22-29) = D0-D7
      PC0-PC7(37-30) = A0-A7
@@ -24,7 +24,7 @@ int  ihexIdx;
 
 uint8_t charToByte(char c1, char c2)
 {
-    uint8_t result;
+    volatile uint8_t result;
 
     result = 0;
     if (c1 >= 'A' && c1 <= 'F' )
@@ -32,7 +32,7 @@ uint8_t charToByte(char c1, char c2)
         result += c1 - 'A' + 10;
     } else if ( c1 >= 'a' && c1 <= 'f' )
     {
-        result += c1 - 'A' + 10;
+        result += c1 - 'a' + 10;
     } else if ( c1 >= '0' && c1 <= '9' )
     {
         result += c1 - '0';
@@ -43,7 +43,7 @@ uint8_t charToByte(char c1, char c2)
         result += c2 - 'A' + 10;
     } else if ( c2 >= 'a' && c2 <= 'f' )
     {
-        result += c2 - 'A' + 10;
+        result += c2 - 'a' + 10;
     } else if ( c2 >= '0' && c2 <= '9' )
     {
         result += c2 - '0';
@@ -53,7 +53,7 @@ uint8_t charToByte(char c1, char c2)
 
 uint16_t charToInt(char c1, char c2, char c3, char c4)
 {
-    uint16_t result;
+    volatile uint16_t result;
 
     result = 0;
     if (c1 >= 'A' && c1 <= 'F' )
@@ -61,7 +61,7 @@ uint16_t charToInt(char c1, char c2, char c3, char c4)
         result += c1 - 'A' + 10;
     } else if ( c1 >= 'a' && c1 <= 'f' )
     {
-        result += c1 - 'A' + 10;
+        result += c1 - 'a' + 10;
     } else if ( c1 >= '0' && c1 <= '9' )
     {
         result += c1 - '0';
@@ -72,7 +72,7 @@ uint16_t charToInt(char c1, char c2, char c3, char c4)
         result += c2 - 'A' + 10;
     } else if ( c2 >= 'a' && c2 <= 'f' )
     {
-        result += c2 - 'A' + 10;
+        result += c2 - 'a' + 10;
     } else if ( c2 >= '0' && c2 <= '9' )
     {
         result += c2 - '0';
@@ -83,7 +83,7 @@ uint16_t charToInt(char c1, char c2, char c3, char c4)
         result += c3 - 'A' + 10;
     } else if ( c3 >= 'a' && c3 <= 'f' )
     {
-        result += c3 - 'A' + 10;
+        result += c3 - 'a' + 10;
     } else if ( c3 >= '0' && c3 <= '9' )
     {
         result += c3 - '0';
@@ -94,7 +94,7 @@ uint16_t charToInt(char c1, char c2, char c3, char c4)
         result += c4 - 'A' + 10;
     } else if ( c4 >= 'a' && c4 <= 'f' )
     {
-        result += c4 - 'A' + 10;
+        result += c4 - 'a' + 10;
     } else if ( c4 >= '0' && c4 <= '9' )
     {
         result += c4 - '0';
@@ -104,13 +104,13 @@ uint16_t charToInt(char c1, char c2, char c3, char c4)
 
 void writeSRAM()
 {
-    uint16_t address;
-    uint8_t addressH;
-    uint8_t addressL;
-    uint8_t data;
-    uint8_t len;
-    int datalen;
-    int j;
+    volatile uint16_t address;
+    volatile uint8_t addressH;
+    volatile uint8_t addressL;
+    volatile uint8_t data;
+    volatile uint8_t len;
+    volatile int datalen;
+    volatile int j;
 
     Serial.println(ihexBuf);
     //Serial.write('.');
@@ -136,6 +136,76 @@ void writeSRAM()
     }
 }
 
+uint16_t readuint16()
+{
+    char  buf[5];
+    volatile char ch1;
+    volatile int  bufidx;
+    volatile int  cpos;
+
+    for (int i = 0; i < 5; i++)
+    {
+        buf[i] = 0;
+    }
+    ch1 = 0;
+    cpos = 0;
+    bufidx = 0;
+    do
+    {
+        if (Serial.available() > 0) {
+            ch1 = Serial.read();
+            if ( (ch1 >= '0' && ch1 <= '9') ||
+                    (ch1 >= 'a' && ch1 <= 'f') ||
+                    (ch1 >= 'A' && ch1 <= 'F') )
+            {
+                buf[bufidx] = ch1;
+                bufidx++;
+                Serial.write(ch1);
+                cpos++;
+            }
+            if (ch1 == 0x08 || ch1 == 0x7f)
+            {
+                bufidx--;
+                if (cpos > 0)
+                {
+                    Serial.write(0x08);
+                    cpos--;
+                }
+            }
+            if (bufidx >= 4)
+            {
+                bufidx = 3;
+            }
+            if (bufidx <= 0)
+            {
+                bufidx = 0;
+            }
+            if (cpos >= 4)
+            {
+                Serial.write(0x08);
+                cpos--;
+            }
+        }
+    } while (ch1 != 0x0d);
+    Serial.println();
+    for (int i = 0 ; i < 5; i++)
+    {
+        Serial.print(buf[i], HEX);
+        Serial.print(' ');
+    }
+
+    return (charToInt(buf[0], buf[1], buf[2], buf[3]));
+}
+
+void printPrompt()
+{
+    Serial.println();
+    Serial.println("r or R : RESET Z80");
+    Serial.println("       : COPY PASTE IHEX FILE. AUTO START HEXLOADER");
+    Serial.println();
+    Serial.print("* ");
+}
+
 void setup() {
 
     DDRA  = 0x00; // D7-D0
@@ -146,21 +216,39 @@ void setup() {
     PORTL = 0x00;
     pinMode(LED, OUTPUT);
     digitalWrite(LED, LOW);
+    digitalWrite(MREQ, HIGH);
+    digitalWrite(WR, HIGH);
     Serial.begin(115200);
     Serial.println("-- Arduino Mega 2560 hex writer --");
+    printPrompt();
 }
 
 void loop() {
     // put your main code here, to run repeatedly:
-    char  ch;
+    volatile char  ch;
 
     if (Serial.available() > 0) {
         if (processingHexWriteMode == false) {
             ch = Serial.read();
+            if (ch == 0x0d)
+            {
+                Serial.println();
+                Serial.print("* ");
+            }
             if (ch == '?')
             {
-                Serial.println("? : This help");
-                Serial.println(": : Start HEX Loader");
+                printPrompt();
+            }
+            if (ch == 'r' || ch == 'R')
+            {
+                Serial.print("Resetting Z80 ");
+                pinMode(RESET, OUTPUT);
+                digitalWrite(RESET, LOW);
+                delay(1000);
+                digitalWrite(RESET, HIGH);
+                pinMode(RESET, INPUT);
+                Serial.println("Done.");
+                Serial.print("* ");
             }
             if (ch == ':')
             {
@@ -205,6 +293,7 @@ void loop() {
                 delay(1000);
                 digitalWrite(RESET, HIGH);
                 pinMode(RESET, INPUT);
+                printPrompt();
                 return;
             }
             // NEXT HEX LINE
