@@ -1,13 +1,105 @@
 /*
      DDUAL-86 ROM HEXWRITER (Aki-80 Compatible board)
+     Arduino MEGA2560
      Mashiro Kusunoki (JP3SRS)
      2021/08/16 Draft Version.
 */
-#define RESET  11
-#define MREQ    9
-#define WR      8
+#define BUSACK PH4  //  7
+#define RESET  PH5  //  8
+#define BUSREQ PH6  //  9
+#define MREQ   PB4  // 10
+#define WR     PB5  // 11
+#define RD     PB6  // 12
 #define LED    13
+uint16_t startAddress;
+uint16_t displayLength;
+uint16_t stopAddress;
 
+void resetSignalOUTPUT()
+{
+    PORTH |= (1 << RESET);
+    DDRH  |= (1 << RESET);
+}
+
+void resetSignalHIZ()
+{
+    DDRH  &= ~(1 << RESET);
+    PORTH &= ~(1 << RESET);
+}
+
+void resetSignalHIGH()
+{
+    PORTH |= (1 << RESET);
+}
+
+void resetSignalLOW()
+{
+    PORTH &= ~(1 << RESET);
+}
+
+void memorySignalOUTPUT()
+{
+    PORTB |= ((1 << MREQ) | (1 << RD) | (1 << WR));
+    DDRB  |= ((1 << MREQ) | (1 << RD) | (1 << WR));
+}
+
+void memorySignalHIZ()
+{
+    DDRB  &= ~((1 << MREQ) | (1 << RD) | (1 << WR));
+    PORTB &= ~((1 << MREQ) | (1 << RD) | (1 << WR));
+}
+
+void mreqSignalHIGH()
+{
+    PORTB |= (1 << MREQ);
+}
+
+void mreqSignalLOW()
+{
+    PORTB &= ~(1 << MREQ);
+}
+
+void wrSignalHIGH()
+{
+    PORTB |= (1 << WR);
+}
+
+void wrSignalLOW()
+{
+    PORTB &= ~(1 << WR);
+}
+
+void rdSignalHIGH()
+{
+    PORTB |= (1 << RD);
+}
+
+void rdSignalLOW()
+{
+    PORTB &= ~(1 << RD);
+}
+
+void busreqSignalOUTPUT()
+{
+    PORTH |= (1 << BUSREQ);
+    DDRH  |= (1 << BUSREQ);
+}
+
+void busreqSignalHIZ()
+{
+    DDRH  &= ~(1 << BUSREQ);
+    PORTH &= ~(1 << BUSREQ);
+}
+
+void busreqSignalHIGH()
+{
+    PORTH |= (1 << BUSREQ);
+}
+
+void busreqSignalLOW()
+{
+    PORTH &= ~(1 << BUSREQ);
+}
 
 volatile boolean  processingHexWriteMode = false;
 char ihexBuf[520];
@@ -102,6 +194,28 @@ uint16_t charToInt(char c1, char c2, char c3, char c4)
     return result;
 }
 
+void byteToChar(char *str, uint8_t num)
+{
+    volatile uint8_t wk;
+
+    wk = (num >> 4);
+    if (wk >= 0 && wk <= 9)
+    {
+        *(str + 0) = wk + '0';
+    } else if (wk >= 10 && wk <= 15)
+    {
+        *(str + 0) = wk - 10 + 'A';
+    }
+    wk = num & 0x0F;
+    if (wk >= 0 && wk <= 9)
+    {
+        *(str + 1) = wk + '0';
+    } else if (wk >= 10 && wk <= 15)
+    {
+        *(str + 1) = wk - 10 + 'A';
+    }
+}
+
 void writeSRAM()
 {
     volatile uint16_t address;
@@ -126,10 +240,8 @@ void writeSRAM()
         PORTA = data;
         PORTC = addressL;
         PORTL = addressH;
-        digitalWrite(WR, LOW);
-        digitalWrite(MREQ, LOW);
-        digitalWrite(WR, HIGH);
-        digitalWrite(MREQ, HIGH);
+        wrSignalLOW();
+        wrSignalHIGH();
         address++;
         addressL = address;
         addressH = address >> 8;
@@ -187,20 +299,67 @@ uint16_t readuint16()
             }
         }
     } while (ch1 != 0x0d);
-    Serial.println();
-    for (int i = 0 ; i < 5; i++)
-    {
-        Serial.print(buf[i], HEX);
-        Serial.print(' ');
-    }
 
     return (charToInt(buf[0], buf[1], buf[2], buf[3]));
+}
+
+void displaySRAM(uint16_t saddr, uint16_t eaddr)
+{
+    uint16_t tmpaddr;
+    uint8_t data;
+    char dispmsg[80];
+    int col;
+    bool endFlag = false;
+
+    tmpaddr = saddr;
+    do
+    {
+        for (int i = 0; i < 80; i++)
+        {
+            dispmsg[i] = ' ';
+        }
+        dispmsg[79] = 0;
+        for (col = 0; col < 16; col++)
+        {
+            if (col == 0)
+            {
+                byteToChar(&dispmsg[0], (uint8_t)(tmpaddr >> 8));
+                byteToChar(&dispmsg[2], (uint8_t)(tmpaddr & 0x00ff));
+            }
+            PORTL = (tmpaddr >> 8);
+            PORTC = tmpaddr & 0x00ff;
+            mreqSignalLOW();
+            rdSignalLOW();
+            asm("NOP\n");
+            asm("NOP\n");
+            data = PINA;
+            rdSignalHIGH();
+            mreqSignalHIGH();
+            byteToChar(&dispmsg[3 * col + 6], data);
+            tmpaddr++;
+            if (data >= 0x20 && data < 0x7f)
+            {
+                dispmsg[col + 55] = data;
+            } else {
+                dispmsg[col + 55] = '.';
+            }
+            if (tmpaddr == eaddr)
+            {
+                endFlag = true;
+                break;
+            }
+        }
+        Serial.println(dispmsg);
+    } while (endFlag == false);
+
+
 }
 
 void printPrompt()
 {
     Serial.println();
     Serial.println("r or R : RESET Z80");
+    Serial.println("d or D : DUMP? MEMORY");
     Serial.println("       : COPY PASTE IHEX FILE. AUTO START HEXLOADER");
     Serial.println();
     Serial.print("* ");
@@ -216,8 +375,8 @@ void setup() {
     PORTL = 0x00;
     pinMode(LED, OUTPUT);
     digitalWrite(LED, LOW);
-    digitalWrite(MREQ, HIGH);
-    digitalWrite(WR, HIGH);
+    //digitalWrite(MREQ, HIGH);
+    //digitalWrite(WR, HIGH);
     Serial.begin(115200);
     Serial.println("-- Arduino Mega 2560 hex writer --");
     printPrompt();
@@ -242,13 +401,44 @@ void loop() {
             if (ch == 'r' || ch == 'R')
             {
                 Serial.print("Resetting Z80 ");
-                pinMode(RESET, OUTPUT);
-                digitalWrite(RESET, LOW);
+                resetSignalOUTPUT();
+                resetSignalLOW();
                 delay(1000);
-                digitalWrite(RESET, HIGH);
-                pinMode(RESET, INPUT);
+                resetSignalHIGH();
+                resetSignalHIZ();
                 Serial.println("Done.");
                 Serial.print("* ");
+            }
+            if (ch == 'd' || ch == 'D')
+            {
+                Serial.println("TEST");
+                Serial.print("START ADDRESS         : ");
+                startAddress = readuint16();
+                Serial.println();
+                Serial.print("Length(default 0x100) : ");
+                displayLength = readuint16();
+                Serial.println();
+                if (displayLength == 0)
+                {
+                    displayLength = 0x0100;
+                }
+                stopAddress = startAddress + displayLength;
+                busreqSignalOUTPUT();
+                busreqSignalLOW();
+                while (PINH & (1 << BUSACK)) ;
+                memorySignalOUTPUT();
+                DDRA = 0x00;
+                DDRC = 0xFF;
+                DDRL = 0xFF;
+                displaySRAM(startAddress, stopAddress);
+                DDRA  = 0x00; // D7-D0
+                DDRC  = 0x00; // A7-A0
+                DDRL  = 0x00; // A15-A8
+                memorySignalHIZ();
+                busreqSignalHIZ();
+
+                //Serial.println(data, HEX);
+                Serial.println("TEST END");
             }
             if (ch == ':')
             {
@@ -258,17 +448,12 @@ void loop() {
                 ihexBuf[ihexIdx++] = ch;
                 // DATA/ADDRESS BUS OUTPUT
                 DDRA  = 0xFF; // D7-D0
-                PORTA = 0x00;
                 DDRC  = 0xFF; // A7-A0
-                PORTC = 0x00;
                 DDRL  = 0xFF; // A15-A8
-                PORTL = 0x00;
-                pinMode(MREQ, OUTPUT);
-                digitalWrite(MREQ, HIGH);
-                pinMode(WR, OUTPUT);
-                digitalWrite(WR, HIGH);
-                pinMode(RESET, OUTPUT);
-                digitalWrite(RESET, LOW);
+                resetSignalOUTPUT();
+                resetSignalLOW();
+                memorySignalOUTPUT();
+                mreqSignalLOW();
             }
         }
         else
@@ -288,11 +473,10 @@ void loop() {
                 PORTC = 0x00;
                 DDRL  = 0x00; // A15-A8
                 PORTL = 0x00;
-                pinMode(MREQ, INPUT);
-                pinMode(WR, INPUT);
+                memorySignalHIZ();
                 delay(1000);
-                digitalWrite(RESET, HIGH);
-                pinMode(RESET, INPUT);
+                resetSignalHIGH();
+                resetSignalHIZ();
                 printPrompt();
                 return;
             }
