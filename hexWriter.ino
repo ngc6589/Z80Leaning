@@ -18,6 +18,10 @@ volatile uint16_t displayLength;
 volatile uint16_t stopAddress;
 char ihexBuf[520];
 volatile int  ihexIdx;
+volatile uint16_t editAddress;
+volatile uint8_t  oldData;
+volatile uint8_t  newData;
+char buf[3];
 
 void resetSignalOUTPUT()
 {
@@ -217,6 +221,7 @@ void writeSRAM()
   volatile int datalen;
   volatile int j;
 
+
   Serial.println(ihexBuf);
   //Serial.write('.');
   len = charToByte(ihexBuf[1], ihexBuf[2]);
@@ -295,6 +300,61 @@ uint16_t readuint16()
   return (charToInt(buf[0], buf[1], buf[2], buf[3]));
 }
 
+uint8_t readuint8()
+{
+  char  buf[3];
+  volatile char ch1;
+  volatile int  bufidx;
+  volatile int  cpos;
+
+  for (int i = 0; i < 3; i++)
+  {
+    buf[i] = 0;
+  }
+  ch1 = 0;
+  cpos = 0;
+  bufidx = 0;
+  do
+  {
+    if (Serial.available() > 0) {
+      ch1 = Serial.read();
+      if ( (ch1 >= '0' && ch1 <= '9') ||
+           (ch1 >= 'a' && ch1 <= 'f') ||
+           (ch1 >= 'A' && ch1 <= 'F') )
+      {
+        buf[bufidx] = ch1;
+        bufidx++;
+        Serial.write(ch1);
+        cpos++;
+      }
+      if (ch1 == 0x08 || ch1 == 0x7f)
+      {
+        bufidx--;
+        if (cpos > 0)
+        {
+          Serial.write(0x08);
+          cpos--;
+        }
+      }
+      if (bufidx >= 2)
+      {
+        bufidx = 1;
+      }
+      if (bufidx <= 0)
+      {
+        bufidx = 0;
+      }
+      if (cpos >= 2)
+      {
+        Serial.write(0x08);
+        cpos--;
+      }
+    }
+  } while (ch1 != 0x0d);
+
+  return (charToByte(buf[0], buf[1]));
+}
+
 void displaySRAM(uint16_t saddr, uint16_t eaddr)
 {
   uint16_t tmpaddr;
@@ -354,6 +414,7 @@ void printPrompt()
   Serial.println();
   Serial.println("r or R : RESET Z80");
   Serial.println("d or D : DUMP MEMORY");
+  Serial.println("e or E : EDIT MEMORY");
   Serial.println("       : COPY PASTE IHEX FILE. AUTO START HEXLOADER");
   Serial.println();
   Serial.print("* ");
@@ -395,11 +456,11 @@ void loop() {
       }
       if (ch == 'd' || ch == 'D')
       {
-        Serial.println("TEST");
-        Serial.print("START ADDRESS          : 0000\b\b\b\b");
+        Serial.println("DUMP MEMORY");
+        Serial.print("START ADDRESS           : 0000\b\b\b\b");
         startAddress = readuint16();
         Serial.println();
-        Serial.print("Length(default 0x00FF) : 00FF\b\b\b\b");
+        Serial.print("+offset(default 0x00FF) : 00FF\b\b\b\b");
         displayLength = readuint16();
         Serial.println();
         if (displayLength == 0)
@@ -420,10 +481,61 @@ void loop() {
         DDRL  = 0x00; // A15-A8
         memorySignalHIZ();
         busreqSignalHIZ();
-
+        Serial.println();
+        Serial.print("* ");
         //Serial.println(data, HEX);
-        Serial.println("TEST END");
+        //Serial.println("TEST END");
       }
+      if (ch == 'e' || ch == 'E')
+      {
+        Serial.println("EDIT MEMORY");
+        Serial.print("EDIT ADDRESS          : 0000\b\b\b\b");
+        editAddress = readuint16();
+        Serial.println();
+        busreqSignalOUTPUT();
+        busreqSignalLOW();
+        while (PINH & (1 << BUSACK)) ;
+        memorySignalOUTPUT();
+        DDRA = 0x00;
+        DDRC = 0xFF;
+        DDRL = 0xFF;
+        PORTL = (editAddress >> 8);
+        PORTC = editAddress & 0x00ff;
+        mreqSignalLOW();
+        rdSignalLOW();
+        asm("NOP\n");
+        asm("NOP\n");
+        asm("NOP\n");
+        asm("NOP\n");
+        oldData = PINA;
+        rdSignalHIGH();
+        mreqSignalHIGH();
+        Serial.print("DATA " );
+        byteToChar(buf, oldData);
+        buf[3] = 0;
+        Serial.print(buf);
+        Serial.print("-> ");
+        newData = readuint8();
+        DDRA = 0xFF;
+        PORTA = newData;
+        mreqSignalLOW();
+        wrSignalLOW();
+        asm("NOP\n");
+        asm("NOP\n");
+        asm("NOP\n");
+        asm("NOP\n");
+        wrSignalHIGH();
+        mreqSignalHIGH();
+        DDRA  = 0x00; // D7-D0
+        DDRC  = 0x00; // A7-A0
+        DDRL  = 0x00; // A15-A8
+        memorySignalHIZ();
+        busreqSignalHIZ();
+        Serial.println();
+        Serial.print("* ");
+
+      }
+
       if (ch == ':')
       {
         Serial.println("--Enter Hex load mode--");
